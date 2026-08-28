@@ -198,7 +198,9 @@ Expected:
 ```text
 Provisioning lab-iot-machine-02 with the claim certificate...
 Provisioned lab-iot-machine-02; production credentials saved.
+Connecting as lab-iot-machine-02 with production credentials...
 Published one message to factory/line-a/lab-iot-machine-02/telemetry.
+Device finished.
 ```
 
 ## 5. Restart test
@@ -220,6 +222,8 @@ Expected:
 
 ```text
 Existing production credentials found; skipping provisioning.
+Connecting as lab-iot-machine-02 with production credentials...
 Published one message to factory/line-a/lab-iot-machine-02/telemetry.
+Device finished.
 ```
 

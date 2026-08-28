@@ -236,8 +236,17 @@ async function main(): Promise<void> {
   await publish();
 }
 
-main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`Device failed: ${message}`);
-  process.exitCode = 1;
-});
+function exitAfterWrite(message: string, exitCode: number): void {
+  // aws-crt can retain native handles after close(). This sample is a one-shot
+  // process, so exit only after MQTT cleanup and the final log write complete.
+  const output = exitCode === 0 ? process.stdout : process.stderr;
+  output.write(`${message}\n`, () => process.exit(exitCode));
+}
+
+main().then(
+  () => exitAfterWrite("Device finished.", 0),
+  (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    exitAfterWrite(`Device failed: ${message}`, 1);
+  },
+);
