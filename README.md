@@ -1,7 +1,6 @@
 # Minimal AWS IoT Fleet Provisioning device
 
-A small Node.js 24 program that demonstrates AWS IoT Fleet Provisioning by
-claim:
+A small Node.js 24 program that demonstrates the complete happy path:
 
 ```text
 first run: claim certificate → register Thing → save device certificate → publish
@@ -9,6 +8,18 @@ later run: saved device certificate → skip registration → publish
 ```
 
 All application logic is in `src/index.ts`.
+
+## Environment used
+
+This example was developed and tested with:
+
+- Node.js 24
+- pnpm for package management
+- Podman for building and running the container
+
+The `Containerfile` uses standard container-image instructions, so readers can
+use Docker or another compatible container engine by adapting the build, run,
+user, and volume options for their environment.
 
 ## How the pieces relate
 
@@ -67,8 +78,9 @@ Create these resources in the same AWS account and Region:
    container.
 6. **AWS IoT endpoint** — Copy the enabled `iot:Data-ATS` domain name from
    **AWS IoT Core → Connect → Domain configurations**.
-7. **Amazon Root CA 1** — Download the public root CA that the device uses to
-   verify the AWS IoT server.
+7. **Amazon Root CA 1** — The certificate-creation download page used in this
+   example offered five files, including this public AWS root certificate. It
+   lets the device verify the AWS IoT server.
 
 For this learning example, a pre-provisioning Lambda hook is not required.
 Production systems should normally validate each device before allowing it to
@@ -93,53 +105,43 @@ The program still:
 - Stops if only one production credential file exists.
 - Reuses saved credentials after a normal successful first run.
 
-## 1. Put the local files in place
+## 1. Prepare credentials and persistent storage
 
-The container commands expect the repository, bootstrap files, and persistent
-device storage to have this layout:
+Choose storage that fits your container environment. Before the first run, the
+container needs:
 
-```text
-parent-directory/
-├── iot-fleet-provisioning-device/       # this repository
-├── certs/
-│   └── fleet-bootstrap/
-│       ├── claim.pem.crt                # downloaded claim certificate
-│       ├── claim.private.pem.key        # downloaded claim private key
-│       └── AmazonRootCA1.pem            # public Amazon root CA
-└── fleet-volumes/
-    └── lab-iot-machine-02/              # initially empty
-```
+- A secure, read-only bootstrap mount containing the claim certificate and
+  private key. The default paths inside the container are
+  `/bootstrap/claim.pem.crt` and `/bootstrap/claim.private.pem.key`.
+- The Amazon Root CA 1 file mounted read-only at
+  `/trust/AmazonRootCA1.pem`.
+- An empty, persistent, writable volume or bind mount at `/identity`.
 
-Create the two directories. Then copy the downloaded files into
-`certs/fleet-bootstrap` and rename them to the exact names shown above. You can
-do this with a file manager or with `cp`; the result is what matters.
+The host directories, volume names, and secret-management mechanism are your
+choice. If you use different paths inside the container, update
+`CLAIM_CERT_PATH`, `CLAIM_KEY_PATH`, `ROOT_CA_PATH`, or `IDENTITY_DIR` in
+`.env` to match.
 
-The `fleet-volumes/lab-iot-machine-02` directory starts empty. On the first
-successful run, the program writes the generated `device.pem.crt` and
-`private.pem.key` files there. Do not copy the claim certificate into this
-directory.
+For `AmazonRootCA1.pem`, either:
 
-If using a shell from the repository directory:
+- Use the root CA file provided with the five certificate downloads; or
+- Download
+  [Amazon Root CA 1](https://www.amazontrust.com/repository/AmazonRootCA1.pem)
+  again from the Amazon Trust Services repository.
 
-```sh
-mkdir -p ../certs/fleet-bootstrap
-mkdir -p ../fleet-volumes/lab-iot-machine-02
-chmod 600 ../certs/fleet-bootstrap/claim.private.pem.key
-chmod 700 ../fleet-volumes/lab-iot-machine-02
-```
+The root CA is public and can be downloaded again. The claim private key is
+secret and AWS only provides it during certificate creation, so keep that
+original download secure.
 
-Mode `600` means only your user can read or change the claim private key. Mode
-`700` gives only your user access to the device identity directory.
+On the first successful run, the program writes `device.pem.crt` and
+`private.pem.key` to `/identity`. Do not place the claim credentials there.
+Keep this storage across container replacement so later runs can reuse the
+device identity. Ensure it is writable by the container user and restrict
+access to both private keys according to your host or container platform.
 
 ## 2. Configure
 
-Create your local environment file:
-
-```sh
-cp .env.example .env
-```
-
-Edit `.env`:
+Create a local `.env` file from `.env.example`, then set:
 
 - Set `AWS_IOT_ENDPOINT` to the enabled `iot:Data-ATS` domain name.
 - Set `THING_NAME` to the final Thing name the template will create.
@@ -176,16 +178,18 @@ Subscribe in the AWS IoT MQTT test client to:
 factory/line-a/+/telemetry
 ```
 
-Then run:
+Supply your own bootstrap directory, root CA file, and persistent identity
+storage in the volume mounts below. These may be host paths or equivalent
+storage managed by your container platform.
 
 ```sh
 podman run --rm \
   --name lab-iot-machine-02 \
   --user "$(id -u):$(id -g)" \
   --env-file .env \
-  -v "$(pwd)/../certs/fleet-bootstrap:/bootstrap:ro" \
-  -v "$(pwd)/../certs/fleet-bootstrap/AmazonRootCA1.pem:/trust/AmazonRootCA1.pem:ro" \
-  -v "$(pwd)/../fleet-volumes/lab-iot-machine-02:/identity:rw" \
+  -v "<bootstrap-directory>:/bootstrap:ro" \
+  -v "<root-ca-file>:/trust/AmazonRootCA1.pem:ro" \
+  -v "<persistent-identity-storage>:/identity:rw" \
   iot-fleet-provisioning-device
 ```
 
@@ -207,8 +211,8 @@ podman run --rm \
   --name lab-iot-machine-02 \
   --user "$(id -u):$(id -g)" \
   --env-file .env \
-  -v "$(pwd)/../certs/fleet-bootstrap/AmazonRootCA1.pem:/trust/AmazonRootCA1.pem:ro" \
-  -v "$(pwd)/../fleet-volumes/lab-iot-machine-02:/identity:rw" \
+  -v "<root-ca-file>:/trust/AmazonRootCA1.pem:ro" \
+  -v "<same-persistent-identity-storage>:/identity:rw" \
   iot-fleet-provisioning-device
 ```
 
